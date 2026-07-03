@@ -251,18 +251,10 @@ Important: The query must be safe and must only use SELECT statements."""
         
         return sql_query, True
     
-    except Exception as e:
-        error_msg = str(e).lower()
-        
-        # Provide user-friendly error messages
-        if "429" in error_msg or "quota" in error_msg or "rate" in error_msg:
-            return "Error: API rate limit exceeded. Please try again in a moment.", False
-        elif "401" in error_msg or "unauthorized" in error_msg or "api_key" in error_msg:
-            return "Error: Invalid or expired API key. Please check your configuration.", False
-        elif "timeout" in error_msg:
-            return "Error: Request timed out. Please try again.", False
-        else:
-            return f"Error: {type(e).__name__} - Could not process query", False
+  except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        return f"CRITICAL ERROR - {type(e).__name__}: {str(e)}\n\nFull Traceback:\n{error_details}", False
 
 
 # ============================================================================
