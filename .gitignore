@@ -1,0 +1,138 @@
+# API Keys and Secrets
+.env
+.env.local
+.env.*.local
+secrets.toml
+.streamlit/secrets.toml
+
+# API Keys
+*api_key*
+*API_KEY*
+*credentials*
+*CREDENTIALS*
+*.key
+*.pem
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/
+.vscode-settings.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual Environments
+venv/
+ENV/
+env/
+.venv
+env.bak/
+venv.bak/
+
+# Streamlit
+.streamlit/
+*.streamlit/
+streamlit_config.yaml
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+database.db
+local.db
+*.sql
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Temporary files
+*.tmp
+tmp/
+temp/
+*.cache
+.cache/
+*.ipynb_checkpoints
+
+# OS
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# pyenv
+.python-version
+
+# Sensitive data
+secrets/
+private/
+confidential/
+sensitive_data/
+
+# Local data
+data/local/
+test_data/
+
+# Build outputs
+dist/
+build/
+*.tar.gz
+*.zip
+
+# Docker
+.dockerignore
+Dockerfile
+
+# Node modules (if applicable)
+node_modules/
+npm-debug.log
