@@ -252,9 +252,9 @@ Important: The query must be safe and must only use SELECT statements."""
         return sql_query, True
     
         except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                return f"CRITICAL ERROR - {type(e).__name__}: {str(e)}\n\nFull Traceback:\n{error_details}", False
+            import traceback
+            error_details = traceback.format_exc()
+            return f"CRITICAL ERROR - {type(e).__name__}: {str(e)}\n\nFull Traceback:\n{error_details}", False
 
 
 # ============================================================================
