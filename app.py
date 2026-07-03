@@ -198,7 +198,7 @@ def convert_nlp_to_sql(natural_query: str, api_key: str) -> Tuple[str, bool]:
     """
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-pro")
+        model = genai.GenerativeModel("gemini-1.5-flash")
         
         # System prompt for SQL generation
         system_prompt = """You are an expert SQL query generator for a community metrics database.
@@ -271,7 +271,7 @@ def generate_insights(df: pd.DataFrame, query: str, api_key: str) -> str:
     
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-pro")
+        model = genai.GenerativeModel("gemini-1.5-flash")
         
         # Prepare data summary
         data_summary = df.describe(include='all').to_string()
