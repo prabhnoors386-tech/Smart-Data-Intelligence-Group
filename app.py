@@ -3,11 +3,8 @@ import pandas as pd
 import sqlite3
 import os
 from datetime import datetime, timedelta
-import re
-import json
 from typing import List, Dict, Tuple, Any
 import google.generativeai as genai
-from pathlib import Path
 
 # ============================================================================
 # CONFIGURATION & SECURITY
@@ -27,8 +24,14 @@ def load_api_key() -> str:
 
 
 # ============================================================================
-# DATABASE INITIALIZATION
+# DATABASE INITIALIZATION (CACHED)
 # ============================================================================
+
+@st.cache_resource
+def get_db_connection() -> sqlite3.Connection:
+    """Initialize and cache SQLite database connection."""
+    return initialize_mock_database()
+
 
 def initialize_mock_database() -> sqlite3.Connection:
     """Initialize SQLite database with mock community metrics data."""
@@ -150,6 +153,10 @@ def validate_query_safety(query: str) -> Tuple[bool, str]:
     Validate SQL query for safety before execution.
     Uses allowlist approach to prevent SQL injection.
     """
+    # Validate input
+    if not query or not isinstance(query, str):
+        return False, "❌ Invalid query input."
+    
     # Convert to uppercase for checking
     query_upper = query.strip().upper()
     
@@ -197,6 +204,10 @@ def convert_nlp_to_sql(natural_query: str, api_key: str) -> Tuple[str, bool]:
     Returns (sql_query, success_flag)
     """
     try:
+        # Validate input
+        if not natural_query or not natural_query.strip():
+            return "Error: Empty query provided", False
+        
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel("gemini-1.5-flash")
         
@@ -219,8 +230,18 @@ Important: The query must be safe and must only use SELECT statements."""
 
         prompt = f"{system_prompt}\n\nUser question: {natural_query}"
         
+        # Generate with timeout handling
         response = model.generate_content(prompt)
+        
+        # Check for empty response
+        if not response or not response.text:
+            return "Error: AI returned empty response. Try rephrasing your question.", False
+        
         sql_query = response.text.strip()
+        
+        # Validate generated SQL is not empty
+        if not sql_query:
+            return "Error: Generated SQL query is empty. Try rephrasing.", False
         
         # Extract SQL from code blocks if present
         if "```sql" in sql_query:
@@ -231,7 +252,17 @@ Important: The query must be safe and must only use SELECT statements."""
         return sql_query, True
     
     except Exception as e:
-        return f"Error generating SQL: {str(e)}", False
+        error_msg = str(e).lower()
+        
+        # Provide user-friendly error messages
+        if "429" in error_msg or "quota" in error_msg or "rate" in error_msg:
+            return "Error: API rate limit exceeded. Please try again in a moment.", False
+        elif "401" in error_msg or "unauthorized" in error_msg or "api_key" in error_msg:
+            return "Error: Invalid or expired API key. Please check your configuration.", False
+        elif "timeout" in error_msg:
+            return "Error: Request timed out. Please try again.", False
+        else:
+            return f"Error: {type(e).__name__} - Could not process query", False
 
 
 # ============================================================================
@@ -290,10 +321,17 @@ Top Rows:
 Provide actionable, specific insights based on this community metrics data."""
 
         response = model.generate_content(insight_prompt)
+        
+        if not response or not response.text:
+            return "Could not generate insights at this time."
+        
         return response.text
     
     except Exception as e:
-        return f"Could not generate insights: {str(e)}"
+        error_msg = str(e).lower()
+        if "429" in error_msg or "quota" in error_msg:
+            return "⚠️ API quota reached. Could not generate insights."
+        return f"Could not generate insights: {type(e).__name__}"
 
 
 # ============================================================================
@@ -407,8 +445,8 @@ def main():
             st.session_state.last_results = None
             st.rerun()
         
-        # Initialize database
-        conn = initialize_mock_database()
+        # Get cached database connection
+        conn = get_db_connection()
         
         if submit_button and user_query.strip():
             with st.spinner("🤖 Converting query to SQL..."):
@@ -463,8 +501,8 @@ def main():
     with col2:
         st.header("📊 Dashboard")
         
-        # Quick statistics
-        conn = initialize_mock_database()
+        # Get cached database connection
+        conn = get_db_connection()
         
         # User count
         users = pd.read_sql_query("SELECT COUNT(*) as count FROM users", conn)
@@ -506,8 +544,6 @@ def main():
         )
         if not status.empty:
             st.bar_chart(status.set_index('status')['count'])
-    
-    conn.close()
     
     # Footer
     st.markdown("---")
