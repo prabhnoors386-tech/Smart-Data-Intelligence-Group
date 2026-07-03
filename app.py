@@ -35,7 +35,7 @@ def get_db_connection() -> sqlite3.Connection:
 
 def initialize_mock_database() -> sqlite3.Connection:
     """Initialize SQLite database with mock community metrics data."""
-    conn = sqlite3.connect(":memory:check_same_thread=False")
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
     cursor = conn.cursor()
     
     # Create users table
