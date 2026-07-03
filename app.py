@@ -505,7 +505,7 @@ def main():
             conn
         )
         if not status.empty:
-            st.pie_chart(status.set_index('status')['count'])
+            st.bar_chart(status.set_index('status')['count'])
     
     conn.close()
     
