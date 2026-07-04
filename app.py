@@ -4,7 +4,7 @@ import sqlite3
 import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple, Any
-import google.generativeai as genai
+import requests
 
 # ============================================================================
 # CONFIGURATION & SECURITY
@@ -146,18 +146,14 @@ def validate_query_safety(query: str) -> Tuple[bool, str]:
     Validate SQL query for safety before execution.
     Uses allowlist approach to prevent SQL injection.
     """
-    # Validate input
     if not query or not isinstance(query, str):
         return False, "❌ Invalid query input."
 
-    # Convert to uppercase for checking
     query_upper = query.strip().upper()
 
-    # Only allow SELECT queries
     if not query_upper.startswith("SELECT"):
         return False, "❌ Only SELECT queries are allowed."
 
-    # Dangerous keywords that should not appear
     dangerous_keywords = [
         "DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "TRUNCATE", 
         "CREATE", "EXEC", "EXECUTE", "--", "/*", "*/", 
@@ -168,7 +164,6 @@ def validate_query_safety(query: str) -> Tuple[bool, str]:
         if keyword in query_upper:
             return False, f"❌ Query contains forbidden keyword: {keyword}"
 
-    # Ensure query doesn't exceed reasonable length
     if len(query) > 1000:
         return False, "❌ Query too long (max 1000 characters)."
 
@@ -176,64 +171,43 @@ def validate_query_safety(query: str) -> Tuple[bool, str]:
 
 def sanitize_sql_query(query: str) -> str:
     """Additional sanitization layer for SQL queries."""
-    # Remove leading/trailing whitespace
     query = query.strip()
-    
-    # Ensure proper SQL formatting
     if not query.endswith(";"):
         query += ";"
-        
     return query
-    # ============================================================================
-# NLP TO SQL CONVERSION
+
+# ============================================================================
+# NLP TO SQL CONVERSION (LIGHTWEIGHT API)
 # ============================================================================
 
 def convert_nlp_to_sql(natural_query: str, api_key: str) -> Tuple[str, bool]:
-    """
-    Convert natural language query to SQL using Google GenAI.
-    Returns (sql_query, success_flag)
-    """
+    """Lightweight REST API call to avoid memory crashes."""
     try:
-        # Validate input
         if not natural_query or not natural_query.strip():
             return "Error: Empty query provided", False
 
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-
-        # System prompt for SQL generation
+        # System prompt setup
         system_prompt = """You are an expert SQL query generator for a community metrics database.
-
 Database schema:
 - users: user_id, username, email, join_date, role, status
 - posts: post_id, user_id, title, content, created_at, views, likes, shares, category
 - comments: comment_id, post_id, user_id, content, created_at, likes
 - engagement: engagement_id, user_id, action_type, action_date, duration_minutes, platform
-
-Generate ONLY a SELECT SQL query that answers the user's question.
-- Use proper SQL syntax
-- Include WHERE clauses when filtering
-- Use aggregate functions (COUNT, SUM, AVG, MAX, MIN) when appropriate
-- Return only the SQL query, no explanations
-
-Important: The query must be safe and must only use SELECT statements."""
+Generate ONLY a SELECT SQL query. Return only the SQL query, no explanations."""
 
         prompt = f"{system_prompt}\n\nUser question: {natural_query}"
+        
+        # Lightweight API Request
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        
+        sql_query = data['candidates'][0]['content']['parts'][0]['text'].strip()
 
-        # Generate with timeout handling
-        response = model.generate_content(prompt)
-
-        # Check for empty response
-        if not response or not response.text:
-            return "Error: AI returned empty response. Try rephrasing your question.", False
-
-        sql_query = response.text.strip()
-
-        # Validate generated SQL is not empty
-        if not sql_query:
-            return "Error: Generated SQL query is empty. Try rephrasing.", False
-
-        # Extract SQL from code blocks if present
+        # Clean up markdown if present
         if "```sql" in sql_query:
             sql_query = sql_query.split("```sql")[1].split("```")[0].strip()
         elif "```" in sql_query:
@@ -242,9 +216,7 @@ Important: The query must be safe and must only use SELECT statements."""
         return sql_query, True
 
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        return f"CRITICAL ERROR - {type(e).__name__}: {str(e)}\n\nFull Traceback:\n{error_details}", False
+        return f"CRITICAL ERROR: {str(e)}", False
 
 # ============================================================================
 # QUERY EXECUTION
@@ -253,16 +225,12 @@ Important: The query must be safe and must only use SELECT statements."""
 def execute_query(conn: sqlite3.Connection, query: str) -> Tuple[pd.DataFrame, str]:
     """Execute validated SQL query and return results as DataFrame."""
     try:
-        # Validate query safety
         is_safe, validation_msg = validate_query_safety(query)
         
         if not is_safe:
             return pd.DataFrame(), validation_msg
 
-        # Sanitize query
         query = sanitize_sql_query(query)
-
-        # Execute query
         df = pd.read_sql_query(query, conn)
         return df, f"✓ Query executed successfully. Returned {len(df)} rows."
 
@@ -272,47 +240,39 @@ def execute_query(conn: sqlite3.Connection, query: str) -> Tuple[pd.DataFrame, s
         return pd.DataFrame(), f"❌ Error executing query: {str(e)}"
 
 # ============================================================================
-# INSIGHTS GENERATION
+# INSIGHTS GENERATION (LIGHTWEIGHT API)
 # ============================================================================
 
 def generate_insights(df: pd.DataFrame, query: str, api_key: str) -> str:
-    """Generate AI-powered insights from query results."""
+    """Lightweight REST API call for insights to avoid memory crashes."""
     if df.empty:
         return "No data available for analysis."
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-
-        # Prepare data summary
         data_summary = df.describe(include='all').to_string()
         top_rows = df.head(10).to_string()
 
         insight_prompt = f"""Analyze this query result and provide 3-4 key insights:
-        
 Original Query: {query}
-
 Data Summary:
 {data_summary}
-
 Top Rows:
 {top_rows}
-
 Provide actionable, specific insights based on this community metrics data."""
 
-        response = model.generate_content(insight_prompt)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        payload = {"contents": [{"parts": [{"text": insight_prompt}]}]}
         
-        if not response or not response.text:
-            return "Could not generate insights at this time."
-            
-        return response.text
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        
+        return data['candidates'][0]['content']['parts'][0]['text']
 
     except Exception as e:
-        error_msg = str(e).lower()
-        if "429" in error_msg or "quota" in error_msg:
-            return "⚠️ API quota reached. Could not generate insights."
-        return f"Could not generate insights: {type(e).__name__}"
-        # ============================================================================
+        return f"Could not generate insights: {str(e)}"
+
+# ============================================================================
 # STREAMLIT UI
 # ============================================================================
 
@@ -515,7 +475,7 @@ def main():
     st.markdown("""
         <div style='text-align: center; color: #999;'>
             <p>🔐 <strong>Security Note:</strong> All queries are validated and sanitized. Only SELECT operations are permitted.</p>
-            <p><small>Powered by Streamlit, Google GenAI, and SQLite</small></p>
+            <p><small>Powered by Streamlit, Google GenAI REST API, and SQLite</small></p>
         </div>
     """, unsafe_allow_html=True)
 
