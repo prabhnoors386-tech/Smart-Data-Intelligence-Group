@@ -21,7 +21,7 @@ def load_api_key() -> str:
         st.error("❌ API Key not configured. Please set GOOGLE_API_KEY environment variable or add it to secrets.")
         st.stop()
         
-    return api_key
+    return api_key.strip()
 
 # ============================================================================
 # DATABASE INITIALIZATION (CACHED)
@@ -37,7 +37,6 @@ def initialize_mock_database() -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:", check_same_thread=False)
     cursor = conn.cursor()
 
-    # Create users table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
@@ -48,8 +47,6 @@ def initialize_mock_database() -> sqlite3.Connection:
         status TEXT
     )
     """)
-
-    # Create posts table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS posts (
         post_id INTEGER PRIMARY KEY,
@@ -64,8 +61,6 @@ def initialize_mock_database() -> sqlite3.Connection:
         FOREIGN KEY (user_id) REFERENCES users(user_id)
     )
     """)
-
-    # Create comments table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS comments (
         comment_id INTEGER PRIMARY KEY,
@@ -78,8 +73,6 @@ def initialize_mock_database() -> sqlite3.Connection:
         FOREIGN KEY (user_id) REFERENCES users(user_id)
     )
     """)
-
-    # Create engagement table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS engagement (
         engagement_id INTEGER PRIMARY KEY,
@@ -92,7 +85,6 @@ def initialize_mock_database() -> sqlite3.Connection:
     )
     """)
 
-    # Insert mock users
     users_data = [
         (1, "alice_tech", "alice@community.io", "2024-01-15", "moderator", "active"),
         (2, "bob_dev", "bob@community.io", "2024-02-10", "member", "active"),
@@ -102,7 +94,6 @@ def initialize_mock_database() -> sqlite3.Connection:
     ]
     cursor.executemany("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)", users_data)
 
-    # Insert mock posts
     base_date = datetime.now() - timedelta(days=30)
     posts_data = [
         (1, 1, "Best practices for data cleaning", "A comprehensive guide on data cleaning techniques...", (base_date + timedelta(days=2)).isoformat(), 450, 89, 12, "data-science"),
@@ -113,7 +104,6 @@ def initialize_mock_database() -> sqlite3.Connection:
     ]
     cursor.executemany("INSERT INTO posts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", posts_data)
 
-    # Insert mock comments
     comments_data = [
         (1, 1, 2, "Great article! Very helpful.", (base_date + timedelta(days=3)).isoformat(), 15),
         (2, 1, 3, "Thanks for sharing this insight.", (base_date + timedelta(days=3)).isoformat(), 8),
@@ -123,7 +113,6 @@ def initialize_mock_database() -> sqlite3.Connection:
     ]
     cursor.executemany("INSERT INTO comments VALUES (?, ?, ?, ?, ?, ?)", comments_data)
 
-    # Insert mock engagement
     engagement_data = [
         (1, 1, "login", base_date.isoformat(), 45, "web"),
         (2, 2, "post_view", (base_date + timedelta(days=1)).isoformat(), 12, "mobile"),
@@ -142,35 +131,24 @@ def initialize_mock_database() -> sqlite3.Connection:
 # ============================================================================
 
 def validate_query_safety(query: str) -> Tuple[bool, str]:
-    """
-    Validate SQL query for safety before execution.
-    Uses allowlist approach to prevent SQL injection.
-    """
     if not query or not isinstance(query, str):
         return False, "❌ Invalid query input."
-
     query_upper = query.strip().upper()
-
     if not query_upper.startswith("SELECT"):
         return False, "❌ Only SELECT queries are allowed."
-
     dangerous_keywords = [
         "DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "TRUNCATE", 
         "CREATE", "EXEC", "EXECUTE", "--", "/*", "*/", 
         "UNION", "PRAGMA", "ATTACH", "DETACH"
     ]
-    
     for keyword in dangerous_keywords:
         if keyword in query_upper:
             return False, f"❌ Query contains forbidden keyword: {keyword}"
-
     if len(query) > 1000:
         return False, "❌ Query too long (max 1000 characters)."
-
     return True, "✓ Query passed security validation."
 
 def sanitize_sql_query(query: str) -> str:
-    """Additional sanitization layer for SQL queries."""
     query = query.strip()
     if not query.endswith(";"):
         query += ";"
@@ -181,12 +159,10 @@ def sanitize_sql_query(query: str) -> str:
 # ============================================================================
 
 def convert_nlp_to_sql(natural_query: str, api_key: str) -> Tuple[str, bool]:
-    """Lightweight REST API call to avoid memory crashes."""
     try:
         if not natural_query or not natural_query.strip():
             return "Error: Empty query provided", False
 
-        # System prompt setup
         system_prompt = """You are an expert SQL query generator for a community metrics database.
 Database schema:
 - users: user_id, username, email, join_date, role, status
@@ -197,8 +173,7 @@ Generate ONLY a SELECT SQL query. Return only the SQL query, no explanations."""
 
         prompt = f"{system_prompt}\n\nUser question: {natural_query}"
         
-        # Lightweight API Request
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         
         response = requests.post(url, json=payload)
@@ -207,7 +182,6 @@ Generate ONLY a SELECT SQL query. Return only the SQL query, no explanations."""
         
         sql_query = data['candidates'][0]['content']['parts'][0]['text'].strip()
 
-        # Clean up markdown if present
         if "```sql" in sql_query:
             sql_query = sql_query.split("```sql")[1].split("```")[0].strip()
         elif "```" in sql_query:
@@ -223,10 +197,8 @@ Generate ONLY a SELECT SQL query. Return only the SQL query, no explanations."""
 # ============================================================================
 
 def execute_query(conn: sqlite3.Connection, query: str) -> Tuple[pd.DataFrame, str]:
-    """Execute validated SQL query and return results as DataFrame."""
     try:
         is_safe, validation_msg = validate_query_safety(query)
-        
         if not is_safe:
             return pd.DataFrame(), validation_msg
 
@@ -244,7 +216,6 @@ def execute_query(conn: sqlite3.Connection, query: str) -> Tuple[pd.DataFrame, s
 # ============================================================================
 
 def generate_insights(df: pd.DataFrame, query: str, api_key: str) -> str:
-    """Lightweight REST API call for insights to avoid memory crashes."""
     if df.empty:
         return "No data available for analysis."
 
@@ -260,7 +231,7 @@ Top Rows:
 {top_rows}
 Provide actionable, specific insights based on this community metrics data."""
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
         payload = {"contents": [{"parts": [{"text": insight_prompt}]}]}
         
         response = requests.post(url, json=payload)
@@ -277,15 +248,8 @@ Provide actionable, specific insights based on this community metrics data."""
 # ============================================================================
 
 def main():
-    # Page configuration
-    st.set_page_config(
-        page_title="Smart Data Intelligence Group",
-        page_icon="📊",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    st.set_page_config(page_title="Smart Data Intelligence Group", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
-    # Custom CSS
     st.markdown("""
         <style>
         .main {padding: 2rem;}
@@ -294,21 +258,16 @@ def main():
         </style>
     """, unsafe_allow_html=True)
 
-    # Header
     st.title("📊 Smart Data Intelligence Group")
     st.markdown("*AI-Powered Natural Language Query Engine for Community Metrics*")
 
-    # Initialize session state
     if "api_key_loaded" not in st.session_state:
         st.session_state.api_key_loaded = False
         st.session_state.last_query = ""
         st.session_state.last_results = None
 
-    # Sidebar
     with st.sidebar:
         st.header("⚙️ Configuration")
-        
-        # API Key status
         try:
             api_key = load_api_key()
             st.session_state.api_key_loaded = True
@@ -318,45 +277,18 @@ def main():
             st.stop()
 
         st.markdown("---")
-
-        # Database info
         st.header("📁 Database Info")
-        st.info("""
-        **Active Database:** Mock Community Metrics
-        - Users: 5 records
-        - Posts: 5 records
-        - Comments: 5 records
-        - Engagement: 6 records
-        """)
-
+        st.info("**Active Database:** Mock Community Metrics\\n- Users: 5 records\\n- Posts: 5 records\\n- Comments: 5 records\\n- Engagement: 6 records")
         st.markdown("---")
-        
-        # Example queries
         st.header("💡 Example Queries")
-        examples = [
-            "How many active users do we have?",
-            "Show the top posts by engagement",
-            "What are the most common categories?",
-            "How much time do users spend on the platform?",
-            "List posts created in the last 7 days",
-        ]
-        
-        for example in examples:
+        for example in ["How many active users do we have?", "Show the top posts by engagement", "What are the most common categories?", "How much time do users spend on the platform?", "List posts created in the last 7 days"]:
             st.caption(f"→ {example}")
 
-    # Main content area
     col1, col2 = st.columns([2, 1], gap="large")
 
     with col1:
         st.header("🔍 Query Interface")
-        
-        # Natural language input
-        user_query = st.text_area(
-            "Enter your question in natural language:",
-            placeholder="Example: Show me the top 5 posts by likes in the last 30 days",
-            height=100,
-            key="user_query"
-        )
+        user_query = st.text_area("Enter your question in natural language:", placeholder="Example: Show me the top 5 posts by likes in the last 30 days", height=100, key="user_query")
 
         col_a, col_b, col_c = st.columns(3)
         with col_a:
@@ -371,7 +303,6 @@ def main():
             st.session_state.last_results = None
             st.rerun()
 
-        # Get cached database connection
         conn = get_db_connection()
 
         if submit_button and user_query.strip():
@@ -382,14 +313,11 @@ def main():
                     st.error(f"Failed to convert query: {sql_query}")
                 else:
                     st.session_state.last_query = sql_query
-                    
                     if show_sql:
                         with st.expander("📝 Generated SQL Query"):
                             st.code(sql_query, language="sql")
 
-                    # Validate safety
                     is_safe, validation_msg = validate_query_safety(sql_query)
-                    
                     if is_safe:
                         st.success(validation_msg)
                     else:
@@ -398,86 +326,54 @@ def main():
                     with st.spinner("⏳ Executing query..."):
                         results_df, exec_msg = execute_query(conn, sql_query)
                         st.session_state.last_results = results_df
-                        
                         if results_df.empty:
                             st.warning(exec_msg)
                         else:
                             st.success(exec_msg)
 
-        # Display results
         st.subheader("📈 Query Results")
         st.dataframe(results_df if st.session_state.last_results is not None else pd.DataFrame(), use_container_width=True)
 
-        # Generate insights
         if st.session_state.last_results is not None and not st.session_state.last_results.empty:
             with st.spinner("🧠 Generating AI insights..."):
                 insights = generate_insights(st.session_state.last_results, user_query, api_key)
                 st.subheader("💡 AI-Generated Insights")
                 st.markdown(insights)
 
-            # Download results
             csv = st.session_state.last_results.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Results (CSV)",
-                data=csv,
-                file_name=f"query_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
+            st.download_button(label="📥 Download Results (CSV)", data=csv, file_name=f"query_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv")
 
     with col2:
         st.header("📊 Dashboard")
-        
-        # Get cached database connection
         conn = get_db_connection()
         
-        # User count
         users = pd.read_sql_query("SELECT COUNT(*) as count FROM users", conn)
         st.metric("👥 Total Users", users['count'].values[0])
         
-        # Posts count
         posts = pd.read_sql_query("SELECT COUNT(*) as count FROM posts", conn)
         st.metric("📝 Total Posts", posts['count'].values[0])
         
-        # Average engagement
         avg_likes = pd.read_sql_query("SELECT AVG(likes) as avg FROM posts", conn)
         st.metric("👍 Avg Post Likes", f"{avg_likes['avg'].values[0]:.1f}")
         
-        # Most viewed post
-        top_post = pd.read_sql_query(
-            "SELECT title, views FROM posts ORDER BY views DESC LIMIT 1", 
-            conn
-        )
+        top_post = pd.read_sql_query("SELECT title, views FROM posts ORDER BY views DESC LIMIT 1", conn)
         if not top_post.empty:
             st.metric("🔥 Most Viewed", top_post['views'].values[0])
             
         st.markdown("---")
             
-        # Category distribution
-        categories = pd.read_sql_query(
-            "SELECT category, COUNT(*) as count FROM posts GROUP BY category", 
-            conn
-        )
+        categories = pd.read_sql_query("SELECT category, COUNT(*) as count FROM posts GROUP BY category", conn)
         if not categories.empty:
             st.subheader("📂 Posts by Category")
             st.bar_chart(categories.set_index('category')['count'])
             
-        # Active users
         st.subheader("👤 User Status")
-        status = pd.read_sql_query(
-            "SELECT status, COUNT(*) as count FROM users GROUP BY status", 
-            conn
-        )
+        status = pd.read_sql_query("SELECT status, COUNT(*) as count FROM users GROUP BY status", conn)
         if not status.empty:
             st.bar_chart(status.set_index('status')['count'])
 
-    # Footer
     st.markdown("---")
-    st.markdown("""
-        <div style='text-align: center; color: #999;'>
-            <p>🔐 <strong>Security Note:</strong> All queries are validated and sanitized. Only SELECT operations are permitted.</p>
-            <p><small>Powered by Streamlit, Google GenAI REST API, and SQLite</small></p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; color: #999;'><p>🔐 <strong>Security Note:</strong> All queries are validated and sanitized. Only SELECT operations are permitted.</p><p><small>Powered by Streamlit, Google GenAI REST API, and SQLite</small></p></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
