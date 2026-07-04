@@ -1,5 +1,5 @@
 streamlit==1.41.1
 pandas==2.2.0
-google-generativeai
+requests
 python-dotenv==1.0.1
 pytz==2024.1
